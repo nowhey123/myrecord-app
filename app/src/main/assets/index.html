@@ -49,7 +49,7 @@
     font-weight:700;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;
     justify-content:center;padding:0 5px}
   .mcell .dots{display:flex;gap:3px;margin-top:6px;flex-wrap:wrap;justify-content:center}
-  .dot{width:6px;height:6px;border-radius:50%;background:var(--primary)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--primary)}
 
   /* 时间线 */
   .tl-wrap{padding:12px 14px 30px}
@@ -121,6 +121,9 @@
   .settings-item{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--line)}
   .settings-item .lab{font-size:15px}.settings-item .sub{font-size:12px;color:var(--muted);margin-top:3px}
   .switch{display:flex;gap:8px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:2px 4px 10px;font-size:12px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
 </style>
 </head>
 <body>
@@ -179,6 +182,10 @@
       <button class="icon-btn" id="openFields">▸</button>
     </div>
     <div class="settings-item">
+      <div><div class="lab">统计定制</div><div class="sub">自定义统计项（如：飞机次数、射次数）</div></div>
+      <button class="icon-btn" id="openStats">▸</button>
+    </div>
+    <div class="settings-item">
       <div><div class="lab">数据备份</div><div class="sub">导出 / 导入全部数据</div></div>
       <div class="switch"><button class="icon-btn" id="btnExport">⤓</button><button class="icon-btn" id="btnImport">⤒</button></div>
     </div>
@@ -225,6 +232,31 @@
   </div>
 </div>
 
+<!-- 统计定制 -->
+<div class="sheet-mask" id="statsMask">
+  <div class="sheet">
+    <h3><span>统计定制</span></h3>
+    <div id="statList"></div>
+    <button class="addopt" id="addStat" style="margin:6px 0 14px">＋ 添加统计项</button>
+    <div class="btns"><button class="btn btn-primary" id="statsClose">完成</button></div>
+  </div>
+</div>
+
+<!-- 统计项编辑 -->
+<div class="sheet-mask" id="statEditMask">
+  <div class="sheet">
+    <h3><span id="statEditTitle">添加统计项</span></h3>
+    <div class="field"><label>名称</label><input id="stName" placeholder="如：飞机次数"></div>
+    <div class="field"><label>统计字段</label><select id="stField"></select></div>
+    <div class="field"><label>当值为</label><select id="stValue"></select></div>
+    <div class="btns">
+      <button class="btn btn-danger" id="stDelete" style="display:none">删除</button>
+      <button class="btn btn-ghost" id="stCancel">取消</button>
+      <button class="btn btn-primary" id="stSave">保存</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -236,19 +268,21 @@ function defaultState(){
   return {
     settings:{name:'我的记录'},
     fields:[
-      {id:'f_way',name:'方式',type:'single',options:['性行为','自慰','口交','爱抚','其他']},
+      {id:'f_way',name:'方式',type:'single',options:['性行为','飞机','口交','爱抚','其他']},
       {id:'f_pos',name:'姿势',type:'multi',options:['传教士','后入式','骑乘','侧卧','站立','口','其他']},
       {id:'f_loc',name:'地点',type:'single',options:['卧室','客厅','浴室','酒店','车上','户外','其他']},
-      {id:'f_who',name:'人物',type:'single',options:['伴侣','自己','其他']},
+      {id:'f_who',name:'人物',type:'single',options:['A','B','C','D']},
       {id:'f_fin',name:'是否射',type:'toggle',options:[]},
       {id:'f_rate',name:'评分',type:'rating',options:[]},
       {id:'f_dur',name:'时长(分钟)',type:'number',options:[]},
       {id:'f_note',name:'备注',type:'text',options:[]}
     ],
-    entries:[]
+    entries:[],
+    customStats:[]
   };
 }
 let state=load();
+if(!state.customStats)state.customStats=[];
 function load(){try{const s=JSON.parse(localStorage.getItem(STORE));if(s&&s.fields&&s.entries)return s;}catch(e){}return defaultState();}
 function save(){localStorage.setItem(STORE,JSON.stringify(state));}
 function pad(n){return String(n).padStart(2,'0');}
@@ -270,19 +304,34 @@ function render(){
 }
 function entriesOn(ds){return state.entries.filter(e=>e.date===ds).sort((a,b)=>(a.time||'').localeCompare(b.time||''));}
 
+/* 日历圆点颜色规则：方式仅"飞机"→黄；人物 A/B→紫(默认)；人物非 A/B→绿；其余默认紫 */
+function entryColor(e){
+  const v=e.values||{};
+  if(v['f_way']==='飞机')return '#ffb020';
+  const who=v['f_who'];
+  if(who==='A'||who==='B')return '#6c63ff';
+  if(who)return '#28c397';
+  return '#6c63ff';
+}
+
 /* ---------- 月历 ---------- */
 function renderCal(){
   const y=monthCursor.getFullYear(),m=monthCursor.getMonth();
   const first=new Date(y,m,1), startOff=(first.getDay()+6)%7, dim=new Date(y,m+1,0).getDate();
   const todayStr=fmtDate(new Date());
   let h='<div class="month-wrap"><div class="mnav"><button id="pm">‹</button>'+
-    '<div class="ml">'+y+'年 '+(m+1)+'月</div><button id="nm">›</button></div><div class="month-grid">';
+    '<div class="ml">'+y+'年 '+(m+1)+'月</div><button id="nm">›</button></div>'+
+    '<div class="legend"><span><i style="background:#6c63ff"></i>A/B</span><span><i style="background:#28c397"></i>非A/B</span><span><i style="background:#ffb020"></i>飞机</span></div>'+
+    '<div class="month-grid">';
   ['一','二','三','四','五','六','日'].forEach(d=>h+='<div class="mhead">'+d+'</div>');
   for(let i=0;i<startOff;i++)h+='<div class="mcell dim"></div>';
   for(let d=1;d<=dim;d++){
     const ds=y+'-'+pad(m+1)+'-'+pad(d);const es=entriesOn(ds);
     h+='<div class="mcell'+(ds===todayStr?' today':'')+'" data-date="'+ds+'"><div class="mn">'+d+'</div>';
-    if(es.length){h+='<div class="cnt">'+es.length+'</div>';}
+    if(es.length){h+='<div class="dots" style="margin-top:auto;margin-bottom:4px">';
+      es.slice(0,6).forEach(e=>h+='<span class="dot" style="background:'+entryColor(e)+'"></span>');
+      if(es.length>6)h+='<span style="font-size:9px;color:var(--muted)">+'+(es.length-6)+'</span>';
+      h+='</div>';}
     h+='</div>';
   }
   h+='</div></div>';
@@ -335,6 +384,19 @@ function renderStat(){
   state.entries.forEach(e=>{if(new Date(e.date+'T00:00')>=t30)last30++;});
   let h='<div class="stat-wrap"><div class="stat-cards">'+
     scard(total,'总记录数')+scard(monthN,'本月')+scard(last30,'近30天')+scard(avg,'平均评分')+'</div>';
+  if(state.customStats&&state.customStats.length){
+    h+='<div class="sblock"><h4>自定义统计</h4><div class="stat-cards" style="margin-bottom:0">';
+    state.customStats.forEach(cs=>{
+      let n=0;
+      state.entries.forEach(e=>{const v=e.values[cs.fieldId];if(v==null)return;
+        if(Array.isArray(v)){if(v.includes(cs.value))n++;}
+        else if(cs.value==='__true__'){if(v===true)n++;}
+        else if(cs.value==='__false__'){if(v===false)n++;}
+        else if(String(v)===cs.value)n++;});
+      h+='<div class="scard"><div class="num">'+n+'</div><div class="lab">'+esc(cs.name)+'</div></div>';
+    });
+    h+='</div></div>';
+  }
   state.fields.filter(f=>f.type==='single'||f.type==='multi').forEach(f=>{
     const counts={};let max=0;
     state.entries.forEach(e=>{const v=e.values[f.id];if(!v)return;
@@ -513,6 +575,51 @@ function deleteField(){
   save();hideMask('fldEditMask');renderFieldList();render();toast('已删除字段');
 }
 
+/* ---------- 统计定制 ---------- */
+function statFieldOptions(){return state.fields.filter(f=>f.type==='single'||f.type==='multi'||f.type==='toggle');}
+function renderStatList(){
+  const box=document.getElementById('statList');box.innerHTML='';
+  if(!state.customStats.length){box.innerHTML='<div class="empty">还没有自定义统计项</div>';return;}
+  state.customStats.forEach(cs=>{
+    const f=state.fields.find(x=>x.id===cs.fieldId);
+    const valLabel=cs.value==='__true__'?'是':cs.value==='__false__'?'否':cs.value;
+    const el=document.createElement('div');el.className='fld-item';
+    el.innerHTML='<div class="fn"><div class="nm">'+esc(cs.name)+'</div><div class="tp">'+(f?esc(f.name):'?')+' = '+esc(valLabel)+'</div></div>';
+    el.appendChild(mini('✎',()=>openStatEdit(cs.id)));box.appendChild(el);
+  });
+}
+let editingStat=null;
+function fillStatFields(sel){const fs=statFieldOptions();sel.innerHTML='';
+  fs.forEach(f=>{const o=document.createElement('option');o.value=f.id;o.textContent=f.name;sel.appendChild(o);});}
+function fillStatValue(){
+  const f=state.fields.find(x=>x.id===document.getElementById('stField').value);
+  const sel=document.getElementById('stValue');sel.innerHTML='';if(!f)return;
+  if(f.type==='toggle'){sel.innerHTML='<option value="__true__">是</option><option value="__false__">否</option>';}
+  else (f.options||[]).forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;sel.appendChild(op);});
+}
+function openStatAdd(){
+  editingStat=null;document.getElementById('statEditTitle').textContent='添加统计项';
+  document.getElementById('stDelete').style.display='none';document.getElementById('stName').value='';
+  fillStatFields(document.getElementById('stField'));fillStatValue();showMask('statEditMask');
+}
+function openStatEdit(id){
+  const cs=state.customStats.find(x=>x.id===id);if(!cs)return;editingStat=id;
+  document.getElementById('statEditTitle').textContent='编辑统计项';
+  document.getElementById('stDelete').style.display='block';document.getElementById('stName').value=cs.name;
+  fillStatFields(document.getElementById('stField'));document.getElementById('stField').value=cs.fieldId;
+  fillStatValue();document.getElementById('stValue').value=cs.value;showMask('statEditMask');
+}
+function saveStat(){
+  const name=document.getElementById('stName').value.trim();if(!name){toast('请输入名称');return;}
+  const fieldId=document.getElementById('stField').value;const value=document.getElementById('stValue').value;
+  if(!fieldId||!value){toast('请选择字段和值');return;}
+  if(editingStat){const cs=state.customStats.find(x=>x.id===editingStat);cs.name=name;cs.fieldId=fieldId;cs.value=value;}
+  else state.customStats.push({id:uid('s'),name,fieldId,value});
+  save();hideMask('statEditMask');renderStatList();toast('已保存');
+}
+function deleteStat(){if(!editingStat)return;state.customStats=state.customStats.filter(x=>x.id!==editingStat);
+  save();hideMask('statEditMask');renderStatList();toast('已删除');}
+
 /* ---------- 备份 ---------- */
 function exportData(){
   const json=JSON.stringify(state,null,2);
@@ -524,7 +631,7 @@ function exportData(){
 }
 function importData(file){const r=new FileReader();
   r.onload=()=>{try{const s=JSON.parse(r.result);if(!s.fields||!s.entries)throw 0;
-    state=s;save();document.getElementById('appTitle').textContent=state.settings.name||'我的记录';
+    state=s;if(!state.customStats)state.customStats=[];save();document.getElementById('appTitle').textContent=state.settings.name||'我的记录';
     render();hideMask('setMask');toast('已导入数据');}catch(e){toast('文件格式不正确');}};
   r.readAsText(file);}
 
@@ -553,6 +660,13 @@ document.getElementById('addOpt').onclick=()=>{fldOptions.push('');renderOpts();
 document.getElementById('flSave').onclick=saveField;
 document.getElementById('flCancel').onclick=()=>hideMask('fldEditMask');
 document.getElementById('flDelete').onclick=deleteField;
+document.getElementById('openStats').onclick=()=>{renderStatList();showMask('statsMask');};
+document.getElementById('statsClose').onclick=()=>hideMask('statsMask');
+document.getElementById('addStat').onclick=openStatAdd;
+document.getElementById('stField').onchange=fillStatValue;
+document.getElementById('stSave').onclick=saveStat;
+document.getElementById('stCancel').onclick=()=>hideMask('statEditMask');
+document.getElementById('stDelete').onclick=deleteStat;
 document.getElementById('btnExport').onclick=exportData;
 document.getElementById('btnImport').onclick=()=>document.getElementById('fileImport').click();
 document.getElementById('fileImport').onchange=e=>{if(e.target.files[0])importData(e.target.files[0]);};
