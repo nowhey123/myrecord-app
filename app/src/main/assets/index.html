@@ -121,9 +121,9 @@
   .settings-item{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--line)}
   .settings-item .lab{font-size:15px}.settings-item .sub{font-size:12px;color:var(--muted);margin-top:3px}
   .switch{display:flex;gap:8px}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:2px 4px 10px;font-size:12px;color:var(--muted)}
-  .legend span{display:flex;align-items:center;gap:5px}
-  .legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .cpick{display:flex;gap:10px;flex-wrap:wrap}
+  .cpick .cs{width:30px;height:30px;border-radius:50%;cursor:pointer;border:3px solid transparent}
+  .cpick .cs.sel{border-color:var(--text)}
 </style>
 </head>
 <body>
@@ -151,6 +151,7 @@
       <div class="field"><label>日期</label><input id="eDate" type="date"></div>
       <div class="field"><label>时间</label><input id="eTime" type="time"></div>
     </div>
+    <div class="field"><label>圆点颜色（日历上显示）</label><div class="cpick" id="colorPick"></div></div>
     <div id="dynForm"></div>
     <div class="btns">
       <button class="btn btn-danger" id="eDelete" style="display:none">删除</button>
@@ -247,8 +248,12 @@
   <div class="sheet">
     <h3><span id="statEditTitle">添加统计项</span></h3>
     <div class="field"><label>名称</label><input id="stName" placeholder="如：飞机次数"></div>
-    <div class="field"><label>统计字段</label><select id="stField"></select></div>
-    <div class="field"><label>当值为</label><select id="stValue"></select></div>
+    <div class="field"><label>形式</label><select id="stForm"><option value="card">小框（当月数字）</option><option value="trend">大框（逐月趋势）</option></select></div>
+    <div class="field"><label>指标</label><select id="stMetric"><option value="count">记录数</option><option value="avg">平均值（评分/数字）</option><option value="value">按选项计数</option></select></div>
+    <div class="field" id="stAvgRow"><label>取平均的字段</label><select id="stAvg"></select></div>
+    <div class="field" id="stFieldRow"><label>统计字段</label><select id="stField"></select></div>
+    <div class="field" id="stValueRow"><label>当值为</label><select id="stValue"></select></div>
+    <div class="field" id="stMonthsRow"><label>月数（趋势）</label><select id="stMonths"><option value="3">近 3 个月</option><option value="6">近 6 个月</option><option value="12">近 12 个月</option></select></div>
     <div class="btns">
       <button class="btn btn-danger" id="stDelete" style="display:none">删除</button>
       <button class="btn btn-ghost" id="stCancel">取消</button>
@@ -269,7 +274,7 @@ function defaultState(){
     settings:{name:'我的记录'},
     fields:[
       {id:'f_way',name:'方式',type:'single',options:['10','飞机','口']},
-      {id:'f_pos',name:'姿势',type:'multi',options:['面对面 站立','后入','骑乘','其他']},
+      {id:'f_pos',name:'姿势',type:'multi',options:['面对面','站立','后入','骑乘','其他']},
       {id:'f_loc',name:'地点',type:'single',options:['卧室','客厅','酒店','其他']},
       {id:'f_who',name:'人物',type:'single',options:['A','B','C','D']},
       {id:'f_res',name:'结果',type:'single',options:['1射','0尿','0射','1尿','其他']},
@@ -278,11 +283,15 @@ function defaultState(){
       {id:'f_note',name:'备注',type:'text',options:[]}
     ],
     entries:[],
-    customStats:[]
+    statWidgets:[
+      {id:'w1',form:'card',name:'本月记录数',metric:'count'},
+      {id:'w2',form:'card',name:'平均评分',metric:'avg',fieldId:'f_rate'},
+      {id:'w3',form:'trend',name:'记录数',metric:'count',months:6}
+    ]
   };
 }
 let state=load();
-if(!state.customStats)state.customStats=[];
+if(!state.statWidgets)state.statWidgets=[];
 function load(){try{const s=JSON.parse(localStorage.getItem(STORE));if(s&&s.fields&&s.entries)return s;}catch(e){}return defaultState();}
 function save(){localStorage.setItem(STORE,JSON.stringify(state));}
 function pad(n){return String(n).padStart(2,'0');}
@@ -304,15 +313,9 @@ function render(){
 }
 function entriesOn(ds){return state.entries.filter(e=>e.date===ds).sort((a,b)=>(a.time||'').localeCompare(b.time||''));}
 
-/* 日历圆点颜色规则：方式仅"飞机"→黄；人物 A/B→紫(默认)；人物非 A/B→绿；其余默认紫 */
-function entryColor(e){
-  const v=e.values||{};
-  if(v['f_way']==='飞机')return '#ffb020';
-  const who=v['f_who'];
-  if(who==='A'||who==='B')return '#6c63ff';
-  if(who)return '#28c397';
-  return '#6c63ff';
-}
+const DOT_COLORS=['#6c63ff','#28c397','#ffb020','#ff5d5d','#3a9bff','#ff7ab8','#9298ab'];
+/* 日历圆点颜色：每条记录自行选择 */
+function entryColor(e){return e.color||'#6c63ff';}
 
 /* ---------- 月历 ---------- */
 function renderCal(){
@@ -321,7 +324,6 @@ function renderCal(){
   const todayStr=fmtDate(new Date());
   let h='<div class="month-wrap"><div class="mnav"><button id="pm">‹</button>'+
     '<div class="ml">'+y+'年 '+(m+1)+'月</div><button id="nm">›</button></div>'+
-    '<div class="legend"><span><i style="background:#6c63ff"></i>A/B</span><span><i style="background:#28c397"></i>非A/B</span><span><i style="background:#ffb020"></i>飞机</span></div>'+
     '<div class="month-grid">';
   ['一','二','三','四','五','六','日'].forEach(d=>h+='<div class="mhead">'+d+'</div>');
   for(let i=0;i<startOff;i++)h+='<div class="mcell dim"></div>';
@@ -368,60 +370,61 @@ function entryCard(e){
     if(f.type==='number')disp=disp+'';
     tags+='<span class="tag"><b>'+esc(f.name)+'</b>'+esc(disp)+'</span>';
   });
-  return '<div class="entry" data-id="'+e.id+'"><div class="etime"><span>'+(e.time||'')+'</span>'+rstr+'</div>'+
+  return '<div class="entry" data-id="'+e.id+'"><div class="etime"><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+entryColor(e)+';margin-right:6px;vertical-align:middle"></span>'+(e.time||'')+'</span>'+rstr+'</div>'+
     '<div class="tags">'+tags+'</div>'+note+'</div>';
 }
 
 /* ---------- 统计 ---------- */
-function renderStat(){
-  const total=state.entries.length;
-  const now=new Date();const mk=now.getFullYear()+'-'+pad(now.getMonth()+1);
-  const monthN=state.entries.filter(e=>e.date.startsWith(mk)).length;
-  const rate=state.fields.find(f=>f.type==='rating');
-  let avg='-';
-  if(rate){const rs=state.entries.map(e=>e.values[rate.id]).filter(v=>v);if(rs.length)avg=(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1);}
-  let last30=0;const t30=new Date();t30.setDate(t30.getDate()-30);
-  state.entries.forEach(e=>{if(new Date(e.date+'T00:00')>=t30)last30++;});
-  let h='<div class="stat-wrap"><div class="stat-cards">'+
-    scard(total,'总记录数')+scard(monthN,'本月')+scard(last30,'近30天')+scard(avg,'平均评分')+'</div>';
-  if(state.customStats&&state.customStats.length){
-    h+='<div class="sblock"><h4>自定义统计</h4><div class="stat-cards" style="margin-bottom:0">';
-    state.customStats.forEach(cs=>{
-      let n=0;
-      state.entries.forEach(e=>{const v=e.values[cs.fieldId];if(v==null)return;
-        if(Array.isArray(v)){if(v.includes(cs.value))n++;}
-        else if(cs.value==='__true__'){if(v===true)n++;}
-        else if(cs.value==='__false__'){if(v===false)n++;}
-        else if(String(v)===cs.value)n++;});
-      h+='<div class="scard"><div class="num">'+n+'</div><div class="lab">'+esc(cs.name)+'</div></div>';
-    });
-    h+='</div></div>';
-  }
-  state.fields.filter(f=>f.type==='single'||f.type==='multi').forEach(f=>{
-    const counts={};let max=0;
-    state.entries.forEach(e=>{const v=e.values[f.id];if(!v)return;
-      (Array.isArray(v)?v:[v]).forEach(x=>{counts[x]=(counts[x]||0)+1;if(counts[x]>max)max=counts[x];});});
-    const keys=Object.keys(counts).sort((a,b)=>counts[b]-counts[a]);
-    if(!keys.length)return;
-    h+='<div class="sblock"><h4>'+esc(f.name)+'</h4>';
-    keys.forEach(k=>{const w=max?Math.round(counts[k]/max*100):0;
-      h+='<div class="bar-row"><div class="bl">'+esc(k)+'</div><div class="bt"><div class="bf" style="width:'+w+'%"></div></div><div class="bv">'+counts[k]+'</div></div>';});
-    h+='</div>';
-  });
-  state.fields.filter(f=>f.type==='toggle').forEach(f=>{
-    let yes=0,no=0;state.entries.forEach(e=>{const v=e.values[f.id];if(v===true)yes++;else if(v===false)no++;});
-    if(!yes&&!no)return;const mx=Math.max(yes,no);
-    h+='<div class="sblock"><h4>'+esc(f.name)+'</h4>'+
-      '<div class="bar-row"><div class="bl">是</div><div class="bt"><div class="bf" style="width:'+(mx?yes/mx*100:0)+'%"></div></div><div class="bv">'+yes+'</div></div>'+
-      '<div class="bar-row"><div class="bl">否</div><div class="bt"><div class="bf" style="width:'+(mx?no/mx*100:0)+'%"></div></div><div class="bv">'+no+'</div></div></div>';
-  });
-  if(total===0)h+='<div class="empty">还没有数据,先添加几条记录吧</div>';
-  h+='</div>';main.innerHTML=h;
+let statMonth=new Date();
+function monthKey(d){return d.getFullYear()+'-'+pad(d.getMonth()+1);}
+function monthEntries(mk){return state.entries.filter(e=>e.date.startsWith(mk));}
+function metricVal(w,list){
+  if(w.metric==='count')return list.length;
+  if(w.metric==='avg'){const rs=list.map(e=>e.values[w.fieldId]).filter(v=>typeof v==='number');
+    if(!rs.length)return 0;return +(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1);}
+  let n=0;list.forEach(e=>{const v=e.values[w.fieldId];if(v==null)return;
+    if(Array.isArray(v)){if(v.includes(w.value))n++;}
+    else if(w.value==='__true__'){if(v===true)n++;}
+    else if(w.value==='__false__'){if(v===false)n++;}
+    else if(String(v)===w.value)n++;});
+  return n;
 }
+function metricMax(w){return w.metric==='avg'?5:null;}
 function scard(n,l){return '<div class="scard"><div class="num">'+n+'</div><div class="lab">'+l+'</div></div>';}
+function trendBlock(title,data,fixedMax){
+  const max=fixedMax||Math.max(1,...data.map(d=>d.val));
+  let h='<div class="sblock"><h4>'+esc(title)+'</h4>';
+  data.forEach(d=>{const w=Math.round(d.val/(max||1)*100);
+    h+='<div class="bar-row"><div class="bl">'+d.label+'</div><div class="bt"><div class="bf" style="width:'+w+'%"></div></div><div class="bv">'+d.val+'</div></div>';});
+  h+='</div>';return h;
+}
+function renderStat(){
+  const list=monthEntries(monthKey(statMonth));
+  let h='<div class="stat-wrap">';
+  h+='<div class="mnav"><button id="spm">‹</button><div class="ml">'+statMonth.getFullYear()+'年 '+(statMonth.getMonth()+1)+'月</div><button id="snm">›</button></div>';
+  const cards=state.statWidgets.filter(w=>w.form==='card');
+  const trends=state.statWidgets.filter(w=>w.form==='trend');
+  if(cards.length){h+='<div class="stat-cards">';cards.forEach(w=>{h+=scard(metricVal(w,list),esc(w.name));});h+='</div>';}
+  trends.forEach(w=>{const n=w.months||6;const arr=[];
+    for(let i=n-1;i>=0;i--){const d=new Date(statMonth.getFullYear(),statMonth.getMonth()-i,1);
+      arr.push({label:(d.getMonth()+1)+'月',val:metricVal(w,monthEntries(monthKey(d)))});}
+    h+=trendBlock(w.name+'（近'+n+'月）',arr,metricMax(w));});
+  if(!state.statWidgets.length)h+='<div class="empty">还没有统计项<br>点 ⚙ 设置 → 统计定制 添加</div>';
+  h+='</div>';main.innerHTML=h;
+  document.getElementById('spm').onclick=()=>{statMonth=new Date(statMonth.getFullYear(),statMonth.getMonth()-1,1);renderStat();};
+  document.getElementById('snm').onclick=()=>{statMonth=new Date(statMonth.getFullYear(),statMonth.getMonth()+1,1);renderStat();};
+}
 
 /* ---------- 条目编辑 ---------- */
-let editingEntry=null, formVals={};
+let editingEntry=null, formVals={}, formColor='#6c63ff';
+function buildColorPick(){
+  const box=document.getElementById('colorPick');box.innerHTML='';
+  DOT_COLORS.forEach(c=>{
+    const el=document.createElement('div');el.className='cs'+(c===formColor?' sel':'');
+    el.style.background=c;el.onclick=()=>{formColor=c;buildColorPick();};
+    box.appendChild(el);
+  });
+}
 function buildForm(){
   const box=document.getElementById('dynForm');box.innerHTML='';
   state.fields.forEach(f=>{
@@ -469,29 +472,29 @@ function buildForm(){
   });
 }
 function openAdd(dateStr){
-  editingEntry=null;formVals={};
+  editingEntry=null;formVals={};formColor='#6c63ff';
   const now=new Date();
   document.getElementById('entryTitle').textContent='添加记录';
   document.getElementById('eDelete').style.display='none';
   document.getElementById('eDate').value=dateStr||fmtDate(now);
   document.getElementById('eTime').value=pad(now.getHours())+':'+pad(now.getMinutes());
-  buildForm();hideMask('dayMask');showMask('entryMask');
+  buildColorPick();buildForm();hideMask('dayMask');showMask('entryMask');
 }
 function openEntry(id){
   const e=state.entries.find(x=>x.id===id);if(!e)return;
-  editingEntry=id;formVals=JSON.parse(JSON.stringify(e.values||{}));
+  editingEntry=id;formVals=JSON.parse(JSON.stringify(e.values||{}));formColor=e.color||'#6c63ff';
   document.getElementById('entryTitle').textContent='编辑记录';
   document.getElementById('eDelete').style.display='block';
   document.getElementById('eDate').value=e.date;document.getElementById('eTime').value=e.time||'';
-  buildForm();hideMask('dayMask');showMask('entryMask');
+  buildColorPick();buildForm();hideMask('dayMask');showMask('entryMask');
 }
 function saveEntry(){
   const date=document.getElementById('eDate').value;if(!date){toast('请选择日期');return;}
   const time=document.getElementById('eTime').value;
   const vals={};Object.keys(formVals).forEach(k=>{const v=formVals[k];
     if(v==null||v===''||(Array.isArray(v)&&!v.length))return;vals[k]=v;});
-  if(editingEntry){const e=state.entries.find(x=>x.id===editingEntry);e.date=date;e.time=time;e.values=vals;}
-  else state.entries.push({id:uid('e'),date,time,values:vals});
+  if(editingEntry){const e=state.entries.find(x=>x.id===editingEntry);e.date=date;e.time=time;e.values=vals;e.color=formColor;}
+  else state.entries.push({id:uid('e'),date,time,values:vals,color:formColor});
   save();hideMask('entryMask');render();toast('已保存');
 }
 function deleteEntry(){if(!editingEntry)return;state.entries=state.entries.filter(x=>x.id!==editingEntry);
@@ -577,47 +580,71 @@ function deleteField(){
 
 /* ---------- 统计定制 ---------- */
 function statFieldOptions(){return state.fields.filter(f=>f.type==='single'||f.type==='multi'||f.type==='toggle');}
+function avgFieldOptions(){return state.fields.filter(f=>f.type==='rating'||f.type==='number');}
 function renderStatList(){
   const box=document.getElementById('statList');box.innerHTML='';
-  if(!state.customStats.length){box.innerHTML='<div class="empty">还没有自定义统计项</div>';return;}
-  state.customStats.forEach(cs=>{
-    const f=state.fields.find(x=>x.id===cs.fieldId);
-    const valLabel=cs.value==='__true__'?'是':cs.value==='__false__'?'否':cs.value;
+  if(!state.statWidgets.length){box.innerHTML='<div class="empty">还没有统计项</div>';return;}
+  state.statWidgets.forEach((w,i)=>{
+    const f=state.fields.find(x=>x.id===w.fieldId);
+    const valLabel=w.value==='__true__'?'是':w.value==='__false__'?'否':w.value;
+    const m=w.metric==='count'?'记录数':w.metric==='avg'?('平均 '+(f?esc(f.name):'?')):((f?esc(f.name):'?')+' = '+esc(valLabel));
+    const tp=(w.form==='trend'?'趋势·近'+(w.months||6)+'月·':'小框·')+m;
     const el=document.createElement('div');el.className='fld-item';
-    el.innerHTML='<div class="fn"><div class="nm">'+esc(cs.name)+'</div><div class="tp">'+(f?esc(f.name):'?')+' = '+esc(valLabel)+'</div></div>';
-    el.appendChild(mini('✎',()=>openStatEdit(cs.id)));box.appendChild(el);
+    el.innerHTML='<div class="fn"><div class="nm">'+esc(w.name)+'</div><div class="tp">'+tp+'</div></div>';
+    el.appendChild(mini('↑',()=>{if(i>0){[state.statWidgets[i-1],state.statWidgets[i]]=[state.statWidgets[i],state.statWidgets[i-1]];save();renderStatList();}}));
+    el.appendChild(mini('↓',()=>{if(i<state.statWidgets.length-1){[state.statWidgets[i+1],state.statWidgets[i]]=[state.statWidgets[i],state.statWidgets[i+1]];save();renderStatList();}}));
+    el.appendChild(mini('✎',()=>openStatEdit(w.id)));
+    box.appendChild(el);
   });
 }
 let editingStat=null;
-function fillStatFields(sel){const fs=statFieldOptions();sel.innerHTML='';
-  fs.forEach(f=>{const o=document.createElement('option');o.value=f.id;o.textContent=f.name;sel.appendChild(o);});}
+function fillSel(sel,opts){sel.innerHTML='';opts.forEach(o=>{const e=document.createElement('option');e.value=o.v;e.textContent=o.t;sel.appendChild(e);});}
 function fillStatValue(){
   const f=state.fields.find(x=>x.id===document.getElementById('stField').value);
   const sel=document.getElementById('stValue');sel.innerHTML='';if(!f)return;
   if(f.type==='toggle'){sel.innerHTML='<option value="__true__">是</option><option value="__false__">否</option>';}
   else (f.options||[]).forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;sel.appendChild(op);});
 }
+function syncStatForm(){
+  const metric=document.getElementById('stMetric').value;
+  const form=document.getElementById('stForm').value;
+  document.getElementById('stFieldRow').style.display=(metric==='value')?'block':'none';
+  document.getElementById('stValueRow').style.display=(metric==='value')?'block':'none';
+  document.getElementById('stAvgRow').style.display=(metric==='avg')?'block':'none';
+  document.getElementById('stMonthsRow').style.display=(form==='trend')?'block':'none';
+}
 function openStatAdd(){
   editingStat=null;document.getElementById('statEditTitle').textContent='添加统计项';
   document.getElementById('stDelete').style.display='none';document.getElementById('stName').value='';
-  fillStatFields(document.getElementById('stField'));fillStatValue();showMask('statEditMask');
+  document.getElementById('stForm').value='card';document.getElementById('stMetric').value='count';document.getElementById('stMonths').value='6';
+  fillSel(document.getElementById('stField'),statFieldOptions().map(f=>({v:f.id,t:f.name})));
+  fillSel(document.getElementById('stAvg'),avgFieldOptions().map(f=>({v:f.id,t:f.name})));
+  fillStatValue();syncStatForm();showMask('statEditMask');
 }
 function openStatEdit(id){
-  const cs=state.customStats.find(x=>x.id===id);if(!cs)return;editingStat=id;
+  const w=state.statWidgets.find(x=>x.id===id);if(!w)return;editingStat=id;
   document.getElementById('statEditTitle').textContent='编辑统计项';
-  document.getElementById('stDelete').style.display='block';document.getElementById('stName').value=cs.name;
-  fillStatFields(document.getElementById('stField'));document.getElementById('stField').value=cs.fieldId;
-  fillStatValue();document.getElementById('stValue').value=cs.value;showMask('statEditMask');
+  document.getElementById('stDelete').style.display='block';document.getElementById('stName').value=w.name;
+  document.getElementById('stForm').value=w.form||'card';document.getElementById('stMetric').value=w.metric||'count';document.getElementById('stMonths').value=String(w.months||6);
+  fillSel(document.getElementById('stField'),statFieldOptions().map(f=>({v:f.id,t:f.name})));
+  fillSel(document.getElementById('stAvg'),avgFieldOptions().map(f=>({v:f.id,t:f.name})));
+  if(w.metric==='value'&&w.fieldId)document.getElementById('stField').value=w.fieldId;
+  fillStatValue();if(w.value)document.getElementById('stValue').value=w.value;
+  if(w.metric==='avg'&&w.fieldId)document.getElementById('stAvg').value=w.fieldId;
+  syncStatForm();showMask('statEditMask');
 }
 function saveStat(){
   const name=document.getElementById('stName').value.trim();if(!name){toast('请输入名称');return;}
-  const fieldId=document.getElementById('stField').value;const value=document.getElementById('stValue').value;
-  if(!fieldId||!value){toast('请选择字段和值');return;}
-  if(editingStat){const cs=state.customStats.find(x=>x.id===editingStat);cs.name=name;cs.fieldId=fieldId;cs.value=value;}
-  else state.customStats.push({id:uid('s'),name,fieldId,value});
+  const form=document.getElementById('stForm').value;const metric=document.getElementById('stMetric').value;
+  const data={name,form,metric,months:+document.getElementById('stMonths').value};
+  if(metric==='value'){data.fieldId=document.getElementById('stField').value;data.value=document.getElementById('stValue').value;
+    if(!data.fieldId||!data.value){toast('请选择字段和值');return;}}
+  else if(metric==='avg'){data.fieldId=document.getElementById('stAvg').value;if(!data.fieldId){toast('请选择字段');return;}}
+  if(editingStat){const w=state.statWidgets.find(x=>x.id===editingStat);Object.keys(w).forEach(k=>{if(k!=='id')delete w[k];});Object.assign(w,data);}
+  else state.statWidgets.push(Object.assign({id:uid('s')},data));
   save();hideMask('statEditMask');renderStatList();toast('已保存');
 }
-function deleteStat(){if(!editingStat)return;state.customStats=state.customStats.filter(x=>x.id!==editingStat);
+function deleteStat(){if(!editingStat)return;state.statWidgets=state.statWidgets.filter(x=>x.id!==editingStat);
   save();hideMask('statEditMask');renderStatList();toast('已删除');}
 
 /* ---------- 备份 ---------- */
@@ -631,7 +658,7 @@ function exportData(){
 }
 function importData(file){const r=new FileReader();
   r.onload=()=>{try{const s=JSON.parse(r.result);if(!s.fields||!s.entries)throw 0;
-    state=s;if(!state.customStats)state.customStats=[];save();document.getElementById('appTitle').textContent=state.settings.name||'我的记录';
+    state=s;if(!state.statWidgets)state.statWidgets=[];save();document.getElementById('appTitle').textContent=state.settings.name||'我的记录';
     render();hideMask('setMask');toast('已导入数据');}catch(e){toast('文件格式不正确');}};
   r.readAsText(file);}
 
@@ -664,6 +691,8 @@ document.getElementById('openStats').onclick=()=>{renderStatList();showMask('sta
 document.getElementById('statsClose').onclick=()=>hideMask('statsMask');
 document.getElementById('addStat').onclick=openStatAdd;
 document.getElementById('stField').onchange=fillStatValue;
+document.getElementById('stForm').onchange=syncStatForm;
+document.getElementById('stMetric').onchange=syncStatForm;
 document.getElementById('stSave').onclick=saveStat;
 document.getElementById('stCancel').onclick=()=>hideMask('statEditMask');
 document.getElementById('stDelete').onclick=deleteStat;
