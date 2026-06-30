@@ -268,13 +268,13 @@ function defaultState(){
   return {
     settings:{name:'我的记录'},
     fields:[
-      {id:'f_way',name:'方式',type:'single',options:['性行为','飞机','口交','爱抚','其他']},
-      {id:'f_pos',name:'姿势',type:'multi',options:['传教士','后入式','骑乘','侧卧','站立','口','其他']},
-      {id:'f_loc',name:'地点',type:'single',options:['卧室','客厅','浴室','酒店','车上','户外','其他']},
+      {id:'f_way',name:'方式',type:'single',options:['10','飞机','口']},
+      {id:'f_pos',name:'姿势',type:'multi',options:['面对面 站立','后入','骑乘','其他']},
+      {id:'f_loc',name:'地点',type:'single',options:['卧室','客厅','酒店','其他']},
       {id:'f_who',name:'人物',type:'single',options:['A','B','C','D']},
-      {id:'f_fin',name:'是否射',type:'toggle',options:[]},
+      {id:'f_res',name:'结果',type:'single',options:['1射','0尿','0射','1尿','其他']},
       {id:'f_rate',name:'评分',type:'rating',options:[]},
-      {id:'f_dur',name:'时长(分钟)',type:'number',options:[]},
+      {id:'f_dur',name:'时长(分钟)',type:'single',options:['10min以内','10-20min','20-30min','30min以上']},
       {id:'f_note',name:'备注',type:'text',options:[]}
     ],
     entries:[],
